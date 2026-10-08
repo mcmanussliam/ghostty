@@ -1,0 +1,171 @@
+import AppKit
+import Foundation
+import WebKit
+
+@main
+struct NativePluginCheck {
+    @MainActor
+    static func main() throws {
+        let decoder = JSONDecoder()
+        let source = Data("""
+            {"type":"snapshot","contextId":"window","contextRevision":3,
+             "statuses":[{"id":"branch","pluginId":"git","contextId":"window","text":"main 👻",
+              "tooltip":"Repo","alignment":"left","priority":0,"command":null}],
+             "panes":[{"id":"changes","pluginId":"git","contextId":"window","title":"Changes",
+              "entry":"/plugin/view.html","root":"/plugin","width":320,"retainOnContextChange":true,
+              "data":{"files":["日本語"],"clean":false}}],
+             "commands":[]}
+            """.utf8)
+        let message = try decoder.decode(PluginHostMessage.self, from: source)
+        precondition(message.contextRevision == 3)
+        precondition(message.statuses?.first?.text == "main 👻")
+        precondition(message.statuses?.first?.command == nil)
+        var snapshot = PluginSnapshot(statuses: message.statuses!, panes: message.panes!)
+        let originalPane = snapshot.panes[0]
+        snapshot.invalidate()
+        precondition(snapshot.statuses.isEmpty)
+        precondition(snapshot.panes.count == 1)
+        precondition(snapshot.panes[0].key == originalPane.key)
+        precondition(snapshot.panes[0].width == originalPane.width)
+        precondition(snapshot.panes[0].data == .null && snapshot.panes[0].loading == true)
+        let transientSource = String(decoding: source, as: UTF8.self)
+            .replacingOccurrences(of: "\"retainOnContextChange\":true,", with: "")
+        let transient = try decoder.decode(PluginHostMessage.self, from: Data(transientSource.utf8))
+        snapshot = PluginSnapshot(panes: transient.panes!)
+        snapshot.invalidate()
+        precondition(snapshot.panes.isEmpty)
+        let value = message.panes!.first!.data
+        let roundTrip = try decoder.decode(PluginJSON.self, from: JSONEncoder().encode(value))
+        precondition(value == roundTrip)
+        let nullValue = try decoder.decode(PluginJSON.self, from: Data("null".utf8))
+        precondition(nullValue == .null)
+        let configuration = try decoder.decode(PluginConfiguration.self, from: Data("""
+            {"version":1,"nodePath":"/opt/homebrew/bin/node","plugins":[{"path":"/plugin","settings":{}}]}
+            """.utf8))
+        precondition(configuration.plugins.first?.enabled == nil)
+        precondition(CommandLine.arguments.count == 4, "Usage: native-check <supervisor.mjs> <node> <git-view.html>")
+        try checkTransport(host: CommandLine.arguments[1], node: CommandLine.arguments[2])
+        checkGitView(path: CommandLine.arguments[3])
+        print("Native plugin components compile; protocol and transport checks passed")
+    }
+
+    @MainActor
+    static func checkGitView(path: String) {
+        _ = NSApplication.shared
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+            window.ghostty = {
+                send: payload => { window.testSent = payload; },
+                onState: handler => window.addEventListener('ghostty:state', event => handler(event.detail))
+            };
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let check = GitViewCheck()
+        webView.navigationDelegate = check
+        let url = URL(fileURLWithPath: path)
+        webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        let deadline = Date(timeIntervalSinceNow: 20)
+        while !check.done && Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
+        webView.stopLoading()
+        precondition(check.done, "Git view loading timed out")
+        precondition(check.failure == nil, check.failure ?? "Git view failed")
+        print("Compiled Git pane loads under WebKit CSP and renders bridge state")
+    }
+
+    /// Exercise the actual Swift pipe adapter and Node supervisor together, without GUI stubs for IO.
+    static func checkTransport(host: String, node: String) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("""
+            {"id":"native-test","name":"Native Test","version":"0.1.0","apiVersion":1,
+             "capabilities":["context","ui.statusBar"],"main":"index.mjs"}
+            """.utf8).write(to: root.appendingPathComponent("plugin.json"))
+        try Data("""
+            export default { activate(api) {
+              api.on('context.changed', async ({context}, next) => {
+                await api.ui.statusBar.set({id:'cwd', contextId:context.id,
+                  revision:context.revision, text:'main 👻 日本語', alignment:'left'});
+                return next();
+              });
+            }};
+            """.utf8).write(to: root.appendingPathComponent("index.mjs"))
+        let config = root.appendingPathComponent("config.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 1, "nodePath": node, "plugins": [["path": root.path]]
+        ]).write(to: config)
+        let transport = PluginTransport()
+        let snapshot = DispatchSemaphore(value: 0)
+        let stopped = DispatchSemaphore(value: 0)
+        transport.start(configURL: config, hostURL: URL(fileURLWithPath: host), receive: { message in
+            if message.type == "ready" {
+                transport.send(.object([
+                    "type": .string("context"), "context": .object([
+                        "id": .string("native-window"), "surfaceId": .string("surface"),
+                        "cwd": .string(root.path), "revision": .number(7)
+                    ])
+                ]))
+            } else if message.type == "snapshot", message.statuses?.first?.text == "main 👻 日本語" {
+                precondition(message.contextRevision == 7)
+                precondition(message.contextId == "native-window")
+                snapshot.signal()
+            }
+        }, stopped: { error in
+            precondition(error == nil, error ?? "Unexpected transport failure")
+            stopped.signal()
+        })
+        precondition(snapshot.wait(timeout: .now() + 10) == .success, "Swift/Node snapshot timed out")
+        transport.stop()
+        precondition(stopped.wait(timeout: .now() + 3) == .success, "Transport shutdown timed out")
+
+        // A disabled configuration must succeed without a Node executable or bundled host.
+        try JSONSerialization.data(withJSONObject: [
+            "version": 1, "nodePath": "/does-not-exist", "plugins": [["enabled": false]]
+        ]).write(to: config)
+        transport.start(configURL: config, hostURL: nil, receive: { _ in
+            preconditionFailure("Disabled plugins unexpectedly started a host")
+        }, stopped: { error in
+            precondition(error == nil)
+            stopped.signal()
+        })
+        precondition(stopped.wait(timeout: .now() + 3) == .success, "Disabled config did not stop")
+    }
+}
+
+@MainActor
+private final class GitViewCheck: NSObject, WKNavigationDelegate {
+    var done = false
+    var failure: String?
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        webView.evaluateJavaScript("""
+            window.dispatchEvent(new CustomEvent('ghostty:state', {detail: {
+                context: {id: 'test', surfaceId: 'surface', cwd: '/repo', revision: 1},
+                data: {root: '/repo', branch: 'main', total: 1, files: [{status: '??', path: '日本語<file>.txt'}]}
+            }}));
+            document.getElementById('refresh').click();
+            ({branch: document.getElementById('branch').textContent,
+              file: document.querySelector('#files .name').textContent,
+              action: window.testSent.action});
+            """) { value, error in
+            if let error {
+                self.failure = error.localizedDescription
+            } else if let result = value as? [String: String],
+                      result["branch"] == "main", result["file"] == "日本語<file>.txt",
+                      result["action"] == "refresh" {
+                self.failure = nil
+            } else {
+                self.failure = "Git view did not render compiled state or send refresh"
+            }
+            self.done = true
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        failure = error.localizedDescription
+        done = true
+    }
+}

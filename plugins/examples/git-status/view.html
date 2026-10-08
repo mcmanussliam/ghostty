@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'" />
+    <title>Git Changes</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font: 12px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+        --text: #24262a;
+        --muted: #6b6e75;
+        --line: #00000012;
+        --hover: #00000006;
+        --added: #237847;
+        --modified: #9a641b;
+        --deleted: #b34545;
+        color: var(--text);
+        background: var(--ghostty-background, #f6f6f6);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --text: #e4e6eb;
+          --muted: #989da8;
+          --line: #ffffff12;
+          --hover: #ffffff08;
+          --added: #83c49a;
+          --modified: #d9b579;
+          --deleted: #e19292;
+          background: var(--ghostty-background, #202124);
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      .repository { padding: 8px 14px 14px; }
+      #root { margin: 0 0 4px; color: var(--muted); font-size: 11px; }
+      .branch { display: flex; align-items: center; gap: 7px; }
+      svg { flex: none; }
+      h1 { margin: 0; font-size: 13px; font-weight: 500; }
+      #root, h1 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .section { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 14px; border-top: 1px solid var(--line); }
+      h2 { margin: 0; font-size: 11px; font-weight: 500; }
+      #count { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }
+      button {
+        display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px;
+        padding: 0; border: 0; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer;
+      }
+      button:hover { color: var(--text); background: var(--hover); }
+      button:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+      ul { margin: 0; padding: 0 6px; list-style: none; }
+      li { display: flex; align-items: baseline; gap: 9px; padding: 6px 8px; border-radius: 5px; }
+      li:hover { background: var(--hover); }
+      .status { flex: none; width: 16px; font: 10px/18px ui-monospace, monospace; text-align: center; color: var(--modified); }
+      .status[data-kind="added"] { color: var(--added); }
+      .status[data-kind="deleted"] { color: var(--deleted); }
+      .path { min-width: 0; flex: 1; }
+      .name { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .directory { display: block; overflow: hidden; text-overflow: ellipsis; white-space: pre; font-size: 10px; color: var(--muted); }
+      #empty { margin: 28px 14px; text-align: center; color: var(--muted); }
+      #empty span { display: block; margin-bottom: 6px; color: var(--added); font-size: 20px; }
+      #summary { margin: 10px 14px; color: var(--muted); font-size: 11px; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="repository" id="repository" hidden>
+      <p id="root"></p>
+      <div class="branch">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+          <circle cx="4" cy="3" r="1.5" /><circle cx="12" cy="4" r="1.5" /><circle cx="4" cy="13" r="1.5" />
+          <path d="M4 4.5v7M12 5.5c0 4-8 1-8 6" />
+        </svg>
+        <h1 id="branch"></h1>
+      </div>
+    </div>
+    <div class="section">
+      <h2>Changes</h2><span id="count"></span>
+      <button id="refresh" title="Refresh Git status" aria-label="Refresh Git status">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <path d="M13 6a5 5 0 1 0 0 5M13 2v4H9" />
+        </svg>
+      </button>
+    </div>
+    <ul id="files" aria-label="Changed files"></ul>
+    <p id="empty" hidden><span aria-hidden="true">✓</span>Working tree clean</p>
+    <p id="summary" role="status"></p>
+    <script src="dist/view.js"></script>
+  </body>
+</html>

@@ -1,0 +1,79 @@
+name: Plugin checks
+
+on:
+  push:
+    branches: [feature/plugin-system]
+  pull_request:
+    paths: ["plugins/**", "macos/**", ".github/workflows/plugins.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugins-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+        working-directory: plugins
+      - run: npm test
+        working-directory: plugins
+      - run: npm run check
+        working-directory: plugins
+      - run: npm run lint
+        working-directory: plugins
+
+  native-components:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+        working-directory: plugins
+      - run: npm run build
+        working-directory: plugins
+      - name: Compile native components and run protocol checks
+        run: |
+          swiftc -swift-version 5 -D DOCK_TILE_PLUGIN -parse-as-library \
+            macos/Sources/Features/Plugins/*.swift \
+            macos/Sources/Helpers/Extensions/OSColor+Extension.swift \
+            plugins/test/native-stubs.swift plugins/test/native-check.swift \
+            -o "$RUNNER_TEMP/ghostty-plugin-check"
+          "$RUNNER_TEMP/ghostty-plugin-check" "$PWD/plugins/dist/host/supervisor.mjs" "$(command -v node)" "$PWD/plugins/examples/git-status/view.html"
+      - name: SwiftLint
+        run: |
+          brew install swiftlint
+          swiftlint lint --strict --config .swiftlint.yml
+
+  native-app:
+    if: github.event_name != 'push'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+        working-directory: plugins
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+      - name: Install build runner
+        run: brew install nushell
+      - name: Build GhosttyKit
+        run: zig build -Demit-macos-app=false
+      - name: Build app and run unit tests
+        run: nu macos/build.nu --action test
+      - name: Verify bundled plugin host
+        run: test -f macos/build/Debug/Ghostty.app/Contents/Resources/host/supervisor.mjs

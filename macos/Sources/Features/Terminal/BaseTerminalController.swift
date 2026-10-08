@@ -56,6 +56,9 @@ class BaseTerminalController: NSWindowController,
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
 
+    /// Stable for this window/tab controller, including when a plugin view takes focus.
+    let pluginContextID = UUID().uuidString
+
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
@@ -877,6 +880,7 @@ class BaseTerminalController: NSWindowController,
     func focusedSurfaceDidChange(to: Ghostty.SurfaceView?) {
         let lastFocusedSurface = focusedSurface
         focusedSurface = to
+        if let to { ghostty.plugins.setContext(id: pluginContextID, surface: to) }
 
         // Important to cancel any prior subscriptions
         focusedSurfaceCancellables = []
@@ -927,6 +931,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     func pwdDidChange(to: URL?) {
+        if let focusedSurface { ghostty.plugins.setContext(id: pluginContextID, surface: focusedSurface) }
         guard let window else { return }
 
         if derivedConfig.macosTitlebarProxyIcon == .visible {
@@ -1229,6 +1234,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     func windowWillClose(_ notification: Notification) {
+        ghostty.plugins.removeContext(id: pluginContextID)
         guard let window else { return }
 
         for surfaceView in surfaceTree {

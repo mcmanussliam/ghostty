@@ -7,7 +7,7 @@ name: Test
 
 # We only want the latest commit to test for any non-main ref.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name != 'main' && github.ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref_name != 'main' && github.ref || github.run_id }}${{ github.repository != 'ghostty-org/ghostty' && '-fork' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -79,7 +79,7 @@ jobs:
 
   required:
     name: "Required Checks: Test"
-    if: always()
+    if: always() && github.repository == 'ghostty-org/ghostty'
     runs-on: namespace-profile-ghostty-xsm
     needs:
       - skip
