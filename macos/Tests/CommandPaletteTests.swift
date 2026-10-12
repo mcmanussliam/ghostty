@@ -15,14 +15,16 @@ struct CommandPaletteFilterTests {
         subtitle: String? = nil,
         description: String? = nil,
         leadingColor: Color? = nil,
-        sortKey: ObjectIdentifier? = nil
+        sortKey: ObjectIdentifier? = nil,
+        category: CommandOptionCategory = .command
     ) -> CommandOption {
         CommandOption(
             title: title,
             subtitle: subtitle,
             description: description,
             leadingColor: leadingColor,
-            sortKey: sortKey
+            sortKey: sortKey,
+            category: category
         ) {}
     }
 
@@ -47,6 +49,90 @@ struct CommandPaletteFilterTests {
 
         #expect([first, second].filteredAndSorted(query: "new") == [first, second])
         #expect([second, first].filteredAndSorted(query: "new") == [second, first])
+    }
+
+    @Test func scopedQueries() {
+        let action = option(title: "New Window")
+        let terminal = option(title: "Focus: New Project", category: .terminal)
+        let options = [action, terminal]
+
+        #expect(options.filteredAndSorted(query: "new") == options)
+        #expect(options.filteredAndSorted(query: "@new") == [terminal])
+        #expect(options.filteredAndSorted(query: "> new") == [action])
+        #expect(options.filteredAndSorted(query: " @ ") == [terminal])
+        #expect(options.filteredAndSorted(query: ">") == [action])
+        #expect(options.filteredAndSorted(query: " \n ") == options)
+    }
+
+    @Test func scopeOnlyUsesLeadingPrefix() {
+        let action = option(title: "Send > to Shell")
+        let terminal = option(title: "Focus: user@host", category: .terminal)
+
+        #expect([action, terminal].filteredAndSorted(query: "user@host") == [terminal])
+        #expect([action, terminal].filteredAndSorted(query: "send >") == [action])
+    }
+
+    @Test func queryCanSpanTitleAndDirectory() {
+        let terminal = option(
+            title: "Focus: Dev Server",
+            subtitle: "~/projects/ghostty",
+            category: .terminal
+        )
+        let otherProject = option(
+            title: "Focus: Dev Server",
+            subtitle: "~/projects/website",
+            category: .terminal
+        )
+
+        #expect([otherProject, terminal].filteredAndSorted(query: "@server ghostty") == [terminal])
+        #expect([terminal].filteredAndSorted(query: "@ GHOSTTY\tSERVER ") == [terminal])
+        #expect([terminal].filteredAndSorted(query: "@server missing") == [])
+    }
+
+    @Test func queryCanSpanTitleAndDescription() {
+        let action = option(title: "Split Right", description: "Create a terminal pane")
+
+        #expect([action].filteredAndSorted(query: ">right pane") == [action])
+        #expect([action].filteredAndSorted(query: ">right missing") == [])
+    }
+
+    @Test func multiWordMatchesKeepFieldRanking() {
+        let title = option(title: "Ghostty Server")
+        let subtitle = option(title: "Server", subtitle: "~/ghostty")
+        let description = option(title: "Server", description: "Ghostty project")
+
+        #expect([description, subtitle, title].filteredAndSorted(query: "ghostty server") == [
+            title, subtitle, description,
+        ])
+    }
+
+    @Test func colorMatchRequiresRemainingWords() {
+        let terminal = option(title: "Focus: Server", leadingColor: .red, category: .terminal)
+
+        #expect([terminal].filteredAndSorted(query: "@red server") == [terminal])
+        #expect([terminal].filteredAndSorted(query: "@red missing") == [])
+    }
+
+    @Test func initialsMatchingIsPreserved() {
+        let action = option(title: "New Window")
+
+        #expect([action].filteredAndSorted(query: ">nw") == [action])
+    }
+
+    @Test func highlightWordsInEachField() {
+        let title = "Focus: Server"
+        let subtitle = "~/projects/ghostty"
+        let query = "server ghostty"
+
+        #expect(title.matchedTokenIndices(for: query)?.map { title[$0] } == Array("Server"))
+        #expect(subtitle.matchedTokenIndices(for: query)?.map { subtitle[$0] } == Array("ghostty"))
+        #expect(title.matchedTokenIndices(for: "missing") == nil)
+    }
+
+    @Test func highlightingDeduplicatesOverlappingWords() {
+        let title = "Server"
+
+        #expect(title.matchedTokenIndices(for: "server serve")?.map { title[$0] } == Array(title))
     }
 
     /// Equal titles use their sort keys independent of input order.
