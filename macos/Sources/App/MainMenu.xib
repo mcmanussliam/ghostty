@@ -50,6 +50,7 @@
                 <outlet property="menuReadonly" destination="xpe-ia-Yjw" id="MMT-Sl-AfD"/>
                 <outlet property="menuRedo" destination="EX8-lB-4s7" id="wON-2J-yT1"/>
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
+                <outlet property="menuPlugins" destination="plg-mn-u01" id="plg-ot-u01"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
                 <outlet property="menuReturnToDefaultSize" destination="Gbx-Vi-OGC" id="po9-qC-Iz6"/>
                 <outlet property="menuScrollToSelection" destination="1rN-4k-Dz3" id="aRr-aT-oe3"/>
@@ -105,6 +106,20 @@
                                 <connections>
                                     <action selector="reloadConfig:" target="bbz-4X-AYv" id="h5x-tu-Izk"/>
                                 </connections>
+                            </menuItem>
+                            <menuItem title="Reload Plugins" id="plg-rl-u01">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="reloadPlugins:" target="bbz-4X-AYv" id="plg-ra-u01"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Plugins" id="plg-mi-u01">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <menu key="submenu" title="Plugins" id="plg-mn-u01">
+                                    <connections>
+                                        <outlet property="delegate" destination="bbz-4X-AYv" id="plg-dl-u01"/>
+                                    </connections>
+                                </menu>
                             </menuItem>
                             <menuItem title="Secure Keyboard Entry" id="oC6-w4-qI7">
                                 <modifierMask key="keyEquivalentModifierMask"/>

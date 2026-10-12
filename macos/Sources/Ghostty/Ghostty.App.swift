@@ -27,6 +27,9 @@ extension Ghostty {
         /// configuration (i.e. font size) from the previously focused window. This would override this.
         @Published private(set) var config: Config
 
+        /// Optional extensions live outside the terminal parser, input stack, and renderer.
+        let plugins = PluginManager()
+
         /// Preferred config file than the default ones
         private var configPath: String?
         /// The ghostty app instance. We only have one of these for the entire app, although I guess
@@ -106,6 +109,7 @@ extension Ghostty {
                 name: NSApplication.didResignActiveNotification,
                 object: nil)
             self.readiness = .ready
+            plugins.reload()
         }
 
         deinit {
@@ -158,6 +162,7 @@ extension Ghostty {
             }
 
             ghostty_app_update_config(app, newConfig.config!)
+            plugins.reload()
             /// applied config will be updated in ``Self.configChange(_:target:v:)``
         }
 
@@ -1645,6 +1650,13 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
                 // Determine if we even care about command finish notifications
+                if let ghostty = (NSApplication.shared.delegate as? AppDelegate)?.ghostty {
+                    ghostty.plugins.commandFinished(
+                        surface: surfaceView,
+                        exitCode: v.exit_code < 0 ? nil : Int(v.exit_code),
+                        durationMs: Double(v.duration) / 1_000_000)
+                }
+
                 guard let config = (NSApplication.shared.delegate as? AppDelegate)?.ghostty.config else { return }
                 switch config.notifyOnCommandFinish {
                 case .never:

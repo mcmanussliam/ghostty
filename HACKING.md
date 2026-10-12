@@ -52,6 +52,11 @@ dependencies:
 Building the Ghostty macOS app requires that Xcode, the macOS SDK,
 and Metal Toolchain are all installed.
 
+This fork also compiles its plugin host with TypeScript. Install Node 22.13 or
+newer and run `npm --prefix plugins ci --ignore-scripts` before building the app.
+Both the Zig app build and `macos/build.nu` compile the plugin sources; for a
+direct Xcode build, run `npm --prefix plugins run build` first.
+
 A common issue is that the incorrect version of Xcode is either
 installed or selected. Use the `xcode-select` command to
 ensure that the correct version of Xcode is selected:

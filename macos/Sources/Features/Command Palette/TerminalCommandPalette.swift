@@ -79,7 +79,27 @@ struct TerminalCommandPaletteView: View {
         // Sort the rest. We replace ":" with a character that sorts before space
         // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
         // for stable ordering when titles are equal.
-        options.append(contentsOf: sortedTerminalPaletteOptions(jumpOptions + terminalOptions))
+        options.append(contentsOf: sortedTerminalPaletteOptions(jumpOptions + terminalOptions + pluginOptions))
+        return options
+    }
+
+    private var pluginOptions: [CommandOption] {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
+        let manager = appDelegate.ghostty.plugins
+        var options = [CommandOption(
+            title: "Reload Plugins",
+            description: "Restart plugins and reload their configuration"
+        ) {
+            manager.reload()
+        }]
+        if let controller = surfaceView.window?.windowController as? BaseTerminalController,
+           let snapshot = manager.snapshots[controller.pluginContextID] {
+            options.append(contentsOf: snapshot.commands.map { command in
+                CommandOption(title: command.title) {
+                    manager.run(command, contextId: controller.pluginContextID)
+                }
+            })
+        }
         return options
     }
 

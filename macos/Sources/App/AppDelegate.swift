@@ -23,6 +23,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuCheckForUpdates: NSMenuItem?
     @IBOutlet private var menuOpenConfig: NSMenuItem?
     @IBOutlet private var menuReloadConfig: NSMenuItem?
+    @IBOutlet private var menuPlugins: NSMenu?
     @IBOutlet private var menuSecureInput: NSMenuItem?
     @IBOutlet private var menuQuit: NSMenuItem?
 
@@ -420,6 +421,7 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ghostty.plugins.stop()
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
@@ -981,6 +983,10 @@ class AppDelegate: NSObject,
         ghostty.reloadConfig()
     }
 
+    @IBAction func reloadPlugins(_ sender: Any?) {
+        ghostty.plugins.reload()
+    }
+
     @IBAction func checkForUpdates(_ sender: Any?) {
         updateController.checkForUpdates()
         // UpdateSimulator.happyPath.simulate(with: updateViewModel)
@@ -1305,6 +1311,51 @@ extension AppDelegate {
 }
 
 // MARK: NSMenuItemValidation
+
+extension AppDelegate: NSMenuDelegate {
+    private struct PluginMenuCommand {
+        let command: PluginCommand
+        let contextId: String
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === menuPlugins else { return }
+        menu.removeAllItems()
+        guard let controller = NSApp.keyWindow?.windowController as? BaseTerminalController,
+              let snapshot = ghostty.plugins.snapshots[controller.pluginContextID] else {
+            let item = menu.addItem(withTitle: "No Plugin Commands", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            return
+        }
+        for command in snapshot.commands {
+            let item = menu.addItem(withTitle: command.title, action: #selector(runPluginCommand(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = PluginMenuCommand(command: command, contextId: controller.pluginContextID)
+        }
+        if !snapshot.statuses.isEmpty {
+            if !snapshot.commands.isEmpty { menu.addItem(.separator()) }
+            let statuses = NSMenu(title: "Status Items")
+            for status in snapshot.statuses {
+                let item = statuses.addItem(withTitle: status.text, action: #selector(togglePluginStatus(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = status.key
+                item.state = ghostty.plugins.hiddenStatusItems.contains(status.key) ? .off : .on
+            }
+            let item = menu.addItem(withTitle: statuses.title, action: nil, keyEquivalent: "")
+            item.submenu = statuses
+        }
+    }
+
+    @objc private func runPluginCommand(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? PluginMenuCommand else { return }
+        ghostty.plugins.run(action.command, contextId: action.contextId)
+    }
+
+    @objc private func togglePluginStatus(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        ghostty.plugins.toggleStatusItem(key)
+    }
+}
 
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

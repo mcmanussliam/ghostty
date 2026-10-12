@@ -51,6 +51,10 @@ pub fn init(
     const env = b.graph.environ_map;
     const app_path = b.fmt("macos/build/{s}/Ghostty.app", .{xc_config});
 
+    const plugins = b.addSystemCommand(&.{ "npm", "--prefix", "plugins", "run", "build" });
+    plugins.setCwd(b.path(""));
+    plugins.has_side_effects = true;
+
     // Our step to build the Ghostty macOS app.
     const build = build: {
         // External environment variables can mess up xcodebuild, so
@@ -77,6 +81,7 @@ pub fn init(
 
         // We need the xcframework
         deps.xcframework.addStepDependencies(&step.step);
+        step.step.dependOn(&plugins.step);
 
         // We also need all these resources because the xcode project
         // references them via symlinks.
@@ -111,6 +116,7 @@ pub fn init(
 
         // We need the xcframework
         deps.xcframework.addStepDependencies(&step.step);
+        step.step.dependOn(&plugins.step);
 
         // We also need all these resources because the xcode project
         // references them via symlinks.

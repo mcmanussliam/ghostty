@@ -1,0 +1,13 @@
+{
+  "id": "git-status",
+  "name": "Git Status",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "capabilities": [
+    "context",
+    "commands",
+    "shell.command.finished",
+    "ui.panes"
+  ],
+  "main": "dist/index.mjs"
+}

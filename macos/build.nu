@@ -11,6 +11,12 @@ def main [
     let project = ($env.FILE_PWD | path join "Ghostty.xcodeproj")
     let build_dir = ($env.FILE_PWD | path join "build")
 
+    if $scheme == "Ghostty" and $action != "clean" {
+        let plugins = ($env.FILE_PWD | path join "../plugins")
+        ^npm --prefix $plugins run build
+        if $env.LAST_EXIT_CODE != 0 { exit $env.LAST_EXIT_CODE }
+    }
+
     # Skip UI tests for CLI-based invocations because it requires
     # special permissions.
     let skip_testing = if $action == "test" {

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2022", "DOM"],
+    "moduleDetection": "legacy"
+  },
+  "include": [
+    "host/**/*.mts",
+    "sdk/index.mts",
+    "examples/git-status/*.mts",
+    "examples/git-status/view.ts",
+    "examples/git-status/bridge.d.ts"
+  ]
+}

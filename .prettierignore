@@ -29,3 +29,6 @@ test/fuzz-libghostty/afl-out/
 
 # Swift example build outputs
 example/swift-vt-xcframework/.build/
+
+# Plugin runtime integration-test fixtures
+plugins/.tmp/
