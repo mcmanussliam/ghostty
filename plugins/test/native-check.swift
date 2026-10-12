@@ -254,6 +254,7 @@ private final class GitViewCheck: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         webView.evaluateJavaScript("""
+            (() => {
             window.dispatchEvent(new CustomEvent('ghostty:state', {detail: {
                 context: {id: 'test', surfaceId: 'surface', cwd: '/repo', revision: 1},
                 data: {root: '/repo', branch: 'main', upstream: 'origin/main', ahead: 2, behind: 1,
@@ -286,15 +287,16 @@ private final class GitViewCheck: NSObject, WKNavigationDelegate {
             filter.value = '日本語';
             filter.dispatchEvent(new Event('input'));
             document.getElementById('refresh').click();
-            ({branch: document.getElementById('branch').textContent,
+            return {branch: document.getElementById('branch').textContent,
               file: [...document.querySelectorAll('#files .name')].find(node => node.textContent === '日本語<file>.txt').textContent,
               groups: String(document.querySelectorAll('.change-group').length),
               preserved: String(preserved), flat: String(flat),
               tracking: document.getElementById('tracking').textContent,
-              action: window.testSent.action});
+              action: window.testSent.action};
+            })();
             """) { value, error in
             if let error {
-                self.failure = error.localizedDescription
+                self.failure = String(describing: (error as NSError).userInfo)
             } else if let result = value as? [String: String],
                       result["branch"] == "main", result["file"] == "日本語<file>.txt",
                       result["action"] == "refresh", result["groups"] == "1",
