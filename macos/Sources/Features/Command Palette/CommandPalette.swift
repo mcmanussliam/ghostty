@@ -164,13 +164,6 @@ struct CommandPaletteView: View {
                     isPresented = false
                     option.action()
                 }
-
-            Divider()
-            Text("@ terminals · > commands")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
         }
         .frame(maxWidth: 500)
         .background(
