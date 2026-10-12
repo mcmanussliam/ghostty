@@ -76,11 +76,10 @@ private struct PluginPaneView: View {
             ZStack {
                 PluginWebView(manager: manager, pane: pane, context: context,
                               backgroundColor: backgroundColor, readyRevision: $readyRevision)
-                    .opacity(isReady ? 1 : 0)
                     .allowsHitTesting(isReady)
                     .accessibilityHidden(!isReady)
                 if !isReady {
-                    backgroundColor
+                    Color(nsColor: NSColor(backgroundColor).withAlphaComponent(1))
                         .overlay {
                             Text("Loading…").foregroundStyle(.secondary)
                         }

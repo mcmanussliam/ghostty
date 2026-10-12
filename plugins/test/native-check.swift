@@ -54,6 +54,7 @@ struct NativePluginCheck {
     @MainActor
     static func checkPaneAppearance() throws {
         NSApp.setActivationPolicy(.regular)
+        NSApp.finishLaunching()
         NSApp.activate(ignoringOtherApps: true)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -86,6 +87,7 @@ struct NativePluginCheck {
         window.isReleasedWhenClosed = false
         window.contentView = webView
         window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer { window.close() }
         webView.navigationDelegate = coordinator
         coordinator.webView = webView
@@ -149,6 +151,10 @@ struct NativePluginCheck {
     static func waitUntil(_ predicate: () -> Bool) {
         let deadline = Date(timeIntervalSinceNow: 10)
         while !predicate() && Date() < deadline {
+            while let event = NSApp.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+                NSApp.sendEvent(event)
+            }
+            NSApp.updateWindows()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
         }
     }
