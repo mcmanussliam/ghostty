@@ -21,11 +21,8 @@ concurrency:
 jobs:
   setup:
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.repository_owner == 'ghostty-org' &&
-        github.ref_name == 'main'
-      )
+      github.repository == 'ghostty-org/ghostty' &&
+      (github.event_name == 'workflow_dispatch' || github.ref_name == 'main')
     runs-on: namespace-profile-ghostty-sm
     outputs:
       should_skip: ${{ steps.check.outputs.should_skip }}
