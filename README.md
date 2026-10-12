@@ -1,3 +1,7 @@
+> This is [mcmanussliam’s personal Ghostty fork](https://github.com/mcmanussliam/ghostty), not an official Ghostty build. The macOS app keeps the Ghostty name and uses `io.github.mcmanussliam.ghostty` as its bundle identifier. Report fork-specific issues here. Official documentation and the upstream project remain credited below.
+>
+> Updates are installed manually from this fork’s releases; the app does not use Ghostty’s official update feeds. macOS preferences and Application Support configuration use the fork’s bundle identifier. The standard `~/.config/ghostty` configuration remains supported and is shared if you choose to use it.
+
 <!-- LOGO -->
 <h1>
 <p align="center">
