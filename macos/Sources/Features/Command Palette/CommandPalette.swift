@@ -1,10 +1,36 @@
 import SwiftUI
 
+enum CommandOptionCategory: Equatable {
+    case command
+    case terminal
+}
+
+/// A leading `@` searches terminals; a leading `>` searches actions.
+struct CommandPaletteSearchQuery {
+    let text: String
+    let category: CommandOptionCategory?
+
+    init(_ rawQuery: String) {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch query.first {
+        case "@": category = .terminal
+        case ">": category = .command
+        default: category = nil
+        }
+        text = (category == nil ? query : String(query.dropFirst()))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isActive: Bool { category != nil || !text.isEmpty }
+}
+
 struct CommandOption: Identifiable, Hashable {
     /// Unique identifier for this option.
     let id = UUID()
     /// The primary text displayed for this command.
     let title: String
+    /// Used to restrict searches to actions or terminal navigation.
+    let category: CommandOptionCategory
     /// Secondary text displayed below the title.
     let subtitle: String?
     /// Tooltip text shown on hover.
@@ -34,9 +60,11 @@ struct CommandOption: Identifiable, Hashable {
         badge: String? = nil,
         emphasis: Bool = false,
         sortKey: ObjectIdentifier? = nil,
+        category: CommandOptionCategory = .command,
         action: @escaping () -> Void
     ) {
         self.title = title
+        self.category = category
         self.subtitle = subtitle
         self.description = description
         self.symbols = symbols
@@ -65,19 +93,13 @@ struct CommandPaletteView: View {
     @State private var selectedIndex: UInt?
     @State private var hoveredOptionID: UUID?
 
-    var query: String {
-        rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    var query: String { CommandPaletteSearchQuery(rawQuery).text }
 
     // The options that we should show, taking into account any filtering from
     // the query. Matched options are ranked in the following order:
     // leadingColor > title > subtitle > description.
     var filteredOptions: [CommandOption] {
-        if query.isEmpty {
-            return options
-        } else {
-            return options.filteredAndSorted(query: query)
-        }
+        options.filteredAndSorted(query: rawQuery)
     }
 
     var selectedOption: CommandOption? {
@@ -125,19 +147,10 @@ struct CommandPaletteView: View {
                     break
                 }
             }
-            .onChange(of: query) { newValue in
-                // If the user types a query then we want to make sure the first
-                // value is selected. If the user clears the query and we were selecting
-                // the first, we unset any selection.
-                if !newValue.isEmpty {
-                    if selectedIndex == nil {
-                        selectedIndex = 0
-                    }
-                } else {
-                    if let selectedIndex, selectedIndex == 0 {
-                        self.selectedIndex = nil
-                    }
-                }
+            .onChange(of: rawQuery) { newValue in
+                // A new query can reorder or replace the results entirely.
+                selectedIndex = CommandPaletteSearchQuery(newValue).isActive ? 0 : nil
+                hoveredOptionID = nil
             }
 
             Divider()
@@ -145,11 +158,19 @@ struct CommandPaletteView: View {
             CommandTable(
                 options: filteredOptions,
                 query: query,
+                rawQuery: rawQuery,
                 selectedIndex: $selectedIndex,
                 hoveredOptionID: $hoveredOptionID) { option in
                     isPresented = false
                     option.action()
                 }
+
+            Divider()
+            Text("@ terminals · > commands")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
         }
         .frame(maxWidth: 500)
         .background(
@@ -219,7 +240,8 @@ private struct CommandPaletteQuery: View {
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
 
-            TextField("Execute a command…", text: $query)
+            TextField("Search commands and terminals…", text: $query)
+                .accessibilityIdentifier("commandPaletteQuery")
                 .padding()
                 .font(.system(size: 20, weight: .light))
                 .frame(height: 48)
@@ -251,6 +273,7 @@ private struct CommandPaletteQuery: View {
 private struct CommandTable: View {
     var options: [CommandOption]
     var query: String
+    var rawQuery: String
     @Binding var selectedIndex: UInt?
     @Binding var hoveredOptionID: UUID?
     var action: (CommandOption) -> Void
@@ -292,6 +315,10 @@ private struct CommandTable: View {
                     proxy.scrollTo(
                         options[Int(selectedIndex)].id)
                 }
+                .onChange(of: rawQuery) { _ in
+                    guard let first = options.first else { return }
+                    proxy.scrollTo(first.id, anchor: .top)
+                }
             }
         }
     }
@@ -307,7 +334,7 @@ private struct CommandRow: View {
 
     private var highlightedTitle: Text {
         guard !query.isEmpty,
-              let indices = option.title.matchedIndices(for: query) else {
+              let indices = option.title.matchedTokenIndices(for: query) else {
             return Text(option.title)
                 .fontWeight(option.emphasis ? .medium : .regular)
         }
@@ -329,8 +356,7 @@ private struct CommandRow: View {
 
     private func highlightedSubtitle(_ subtitle: String) -> Text {
         guard !query.isEmpty,
-              option.title.matchedIndices(for: query) == nil,
-              let indices = subtitle.matchedIndices(for: query) else {
+              let indices = subtitle.matchedTokenIndices(for: query) else {
             return Text(subtitle)
         }
 
@@ -428,6 +454,16 @@ private struct ShortcutSymbolsView: View {
 }
 
 extension String {
+    /// Highlight the phrase when possible, otherwise highlight matching words
+    /// independently so a query spanning the title and directory is visible.
+    func matchedTokenIndices(for query: String) -> [String.Index]? {
+        if let indices = matchedIndices(for: query) { return indices }
+        let indices = query.split(whereSeparator: \.isWhitespace).flatMap {
+            matchedIndices(for: String($0)) ?? []
+        }
+        return indices.isEmpty ? nil : Array(Set(indices)).sorted()
+    }
+
     /// Returns the character indices that match `query`, trying a substring match first,
     /// then falling back to initials matching (first letter of each word).
     /// - Returns: `nil` if neither matches.
@@ -464,7 +500,11 @@ extension Collection where Element == CommandOption {
     /// maintaining original order: a closer leading color match always wins,
     /// then a title match beats a subtitle match beats a description match.
     func filteredAndSorted(query: String) -> [Element] {
-        compactMap { CommandOptionMatch(option: $0, query: query) }
+        let search = CommandPaletteSearchQuery(query)
+        let candidates = filter { search.category == nil || $0.category == search.category }
+        guard !search.text.isEmpty else { return candidates }
+
+        return candidates.compactMap { CommandOptionMatch(option: $0, query: search.text) }
             .sorted {
                 ($0.colorScore, $0.textScore) > ($1.colorScore, $1.textScore)
             }
@@ -478,14 +518,31 @@ struct CommandOptionMatch {
     /// How closely the option's leading color matches a color name in the
     /// query, from 0 (no match) to 1 (exact).
     let colorScore: Double
-    /// Which text field matched, ranked: title (3), subtitle (2),
-    /// description (1), none (0).
+    /// Which text field matched the phrase, or the weakest matching field
+    /// across words: title (3), subtitle (2), description (1), none (0).
     let textScore: Int
 
     /// Returns nil if the option doesn't match the query at all.
     init?(option: CommandOption, query: String) {
-        let colorScore = Self.colorMatchScore(for: option.leadingColor, query: query)
-        let textScore: Int = if option.title.matchedIndices(for: query) != nil {
+        let tokens = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty else { return nil }
+
+        let textScores = tokens.map { Self.textMatchScore(for: option, query: $0) }
+        let colorScores = tokens.map { Self.colorMatchScore(for: option.leadingColor, query: $0) }
+        // Every word must match, but words can match different fields. A color
+        // match must not admit an option that misses the rest of the query.
+        guard zip(textScores, colorScores).allSatisfy({ pair in
+            pair.0 > 0 || pair.1 > 0
+        }) else { return nil }
+
+        self.option = option
+        self.colorScore = colorScores.max() ?? 0
+        let phraseScore = Self.textMatchScore(for: option, query: query)
+        self.textScore = phraseScore > 0 ? phraseScore : (textScores.min() ?? 0)
+    }
+
+    private static func textMatchScore(for option: CommandOption, query: String) -> Int {
+        if option.title.matchedIndices(for: query) != nil {
             3
         } else if option.subtitle?.matchedIndices(for: query) != nil {
             2
@@ -494,11 +551,6 @@ struct CommandOptionMatch {
         } else {
             0
         }
-
-        guard colorScore > 0 || textScore > 0 else { return nil }
-        self.option = option
-        self.colorScore = colorScore
-        self.textScore = textScore
     }
 
     /// Returns a score (0.0 to 1.0) indicating how well a color matches a search query color name.
