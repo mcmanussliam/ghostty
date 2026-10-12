@@ -19,16 +19,6 @@ struct PluginWebView: NSViewRepresentable {
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.userContentController.add(context.coordinator, name: "ghostty")
-        configuration.userContentController.addUserScript(WKUserScript(source: """
-            window.ghostty = Object.freeze({
-                send: payload => window.webkit.messageHandlers.ghostty.postMessage(payload),
-                onState: handler => {
-                    const listener = event => handler(event.detail);
-                    window.addEventListener('ghostty:state', listener);
-                    return () => window.removeEventListener('ghostty:state', listener);
-                }
-            });
-            """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
@@ -77,6 +67,18 @@ struct PluginWebView: NSViewRepresentable {
         private var lastContext: PluginContext?
         private var lastData: PluginJSON?
         private var appearance = ""
+        private var publication = 0
+
+        private static let bridge = """
+            window.ghostty = Object.freeze({
+                send: payload => window.webkit.messageHandlers.ghostty.postMessage(payload),
+                onState: handler => {
+                    const listener = event => handler(event.detail);
+                    window.addEventListener('ghostty:state', listener);
+                    return () => window.removeEventListener('ghostty:state', listener);
+                }
+            });
+            """
 
         init(manager: PluginManager, pane: PluginPane, context: PluginContext?, readyRevision: Binding<Int?>) {
             self.manager = manager
@@ -89,8 +91,14 @@ struct PluginWebView: NSViewRepresentable {
             // updateNSView can run before asynchronous rule installation finishes.
             guard rulesReady else { return }
             loaded = false
+            publication += 1
+            readyRevision.wrappedValue = nil
             lastContext = nil
             lastData = nil
+            let scripts = webView?.configuration.userContentController
+            scripts?.removeAllUserScripts()
+            scripts?.addUserScript(WKUserScript(source: Self.bridge + "\n" + appearance,
+                                              injectionTime: .atDocumentStart, forMainFrameOnly: true))
             webView?.loadFileURL(URL(fileURLWithPath: pane.entry), allowingReadAccessTo: URL(fileURLWithPath: pane.root))
         }
 
@@ -100,6 +108,7 @@ struct PluginWebView: NSViewRepresentable {
             guard let hex = background.hexString else { return }
             let script = """
                 document.documentElement.style.setProperty('--ghostty-background', '\(hex)');
+                document.documentElement.style.backgroundColor = '\(hex)';
                 document.documentElement.style.colorScheme = '\(scheme == .dark ? "dark" : "light")';
                 """
             guard script != appearance else { return }
@@ -108,7 +117,7 @@ struct PluginWebView: NSViewRepresentable {
         }
 
         func publish() {
-            guard loaded, let context else { return }
+            guard loaded, pane.loading != true, let context else { return }
             guard context != lastContext || pane.data != lastData else { return }
             struct State: Encodable {
                 let context: PluginContext
@@ -118,20 +127,28 @@ struct PluginWebView: NSViewRepresentable {
                   let json = String(data: state, encoding: .utf8) else { return }
             lastContext = context
             lastData = pane.data
-            webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('ghostty:state', {detail: \(json)}));") { [weak self] _, error in
+            publication += 1
+            let token = publication
+            // Script evaluation can finish before WebKit commits the first rendered frame.
+            let script = """
+                window.dispatchEvent(new CustomEvent('ghostty:state', {detail: \(json)}));
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                """
+            webView?.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { [weak self] result in
                 guard let self, self.webView != nil else { return }
-                if error != nil {
+                guard self.publication == token, self.context == context else { return }
+                if case .failure = result {
                     self.lastContext = nil
                     self.lastData = nil
                     return
                 }
-                guard self.context == context else { return }
                 self.readyRevision.wrappedValue = context.revision
             }
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             loaded = false
+            publication += 1
             readyRevision.wrappedValue = nil
         }
 

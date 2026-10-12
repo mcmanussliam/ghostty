@@ -171,8 +171,10 @@ export default {
       },
     });
     api.on("context.changed", async ({ context }, next) => {
+      const priority = contexts.has(context.id);
       contexts.set(context.id, { context, root: null, checkedAt: -Infinity });
-      queue.schedule(context);
+      // A live directory/focus change should not wait behind background replay or polling.
+      queue.schedule(context, { priority });
       return next();
     });
     api.on("context.closed", async ({ context }, next) => {

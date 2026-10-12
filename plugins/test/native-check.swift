@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import WebKit
 
 @main
@@ -46,7 +47,94 @@ struct NativePluginCheck {
         precondition(CommandLine.arguments.count == 4, "Usage: native-check <supervisor.mjs> <node> <git-view.html>")
         try checkTransport(host: CommandLine.arguments[1], node: CommandLine.arguments[2])
         checkGitView(path: CommandLine.arguments[3])
+        try checkPaneAppearance()
         print("Native plugin components compile; protocol and transport checks passed")
+    }
+
+    @MainActor
+    static func checkPaneAppearance() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let entry = root.appendingPathComponent("view.html")
+        try Data("""
+            <!doctype html><html><head><script>
+                window.startBackground = document.documentElement.style.backgroundColor;
+                window.startScheme = document.documentElement.style.colorScheme;
+                window.paintedRevision = null;
+                window.ghostty.onState(({context}) => {
+                    document.documentElement.dataset.revision = context.revision;
+                    requestAnimationFrame(() => { window.paintedRevision = context.revision; });
+                });
+            </script></head><body>Pane</body></html>
+            """.utf8).write(to: entry)
+        let pane = PluginPane(id: "pane", pluginId: "test", contextId: "test", title: "Pane",
+                              entry: entry.path, root: root.path, width: 320,
+                              retainOnContextChange: true, data: .null, loading: false)
+        let context = PluginContext(id: "test", surfaceId: "surface", cwd: root.path, revision: 1)
+        var ready: Int?
+        var accepted: [Int] = []
+        let coordinator = PluginWebView.Coordinator(manager: PluginManager(), pane: pane, context: context,
+            readyRevision: Binding(get: { ready }, set: { revision in
+                ready = revision
+                if let revision { accepted.append(revision) }
+            }))
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        let window = NSWindow(contentRect: webView.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        window.orderFront(nil)
+        defer { window.close() }
+        webView.navigationDelegate = coordinator
+        coordinator.webView = webView
+        coordinator.rulesReady = true
+        coordinator.setAppearance(background: NSColor(srgbRed: 24 / 255, green: 33 / 255, blue: 42 / 255, alpha: 1),
+                                  scheme: .dark)
+        coordinator.load()
+        waitUntil { ready == 1 }
+        precondition(ready == 1, "Pane did not acknowledge its first rendered frame")
+
+        // An obsolete frame must not reveal newer state, including an entry reload at the same revision.
+        coordinator.context = PluginContext(id: "test", surfaceId: "surface", cwd: root.path, revision: 2)
+        coordinator.pane.loading = true
+        coordinator.publish()
+        var loadingChecked = false
+        webView.evaluateJavaScript("document.documentElement.dataset.revision") { value, error in
+            precondition(error == nil && (value as? String) == "1", "Loading state must not be published as ready")
+            loadingChecked = true
+        }
+        waitUntil { loadingChecked }
+        precondition(loadingChecked && ready == 1)
+        coordinator.pane.loading = false
+        coordinator.publish()
+        coordinator.context = PluginContext(id: "test", surfaceId: "surface", cwd: root.path, revision: 3)
+        coordinator.publish()
+        waitUntil { ready == 3 }
+        precondition(ready == 3 && !accepted.contains(2), "An obsolete publication was accepted")
+        coordinator.load()
+        precondition(ready == nil, "Reload must cover the previous page immediately")
+        waitUntil { ready == 3 }
+        precondition(ready == 3, "Reloaded pane did not become ready")
+
+        var verified = false
+        webView.evaluateJavaScript("""
+            window.startBackground === 'rgb(24, 33, 42)' && window.startScheme === 'dark' &&
+            window.paintedRevision === 3 && document.documentElement.dataset.revision === '3';
+            """) { value, error in
+            precondition(error == nil)
+            verified = (value as? Bool) == true
+        }
+        waitUntil { verified }
+        precondition(verified, "Appearance must be installed before page content and state before revealing the pane")
+        print("Native pane applies appearance at document start and reveals only current rendered state")
+    }
+
+    @MainActor
+    static func waitUntil(_ predicate: () -> Bool) {
+        let deadline = Date(timeIntervalSinceNow: 10)
+        while !predicate() && Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
     }
 
     @MainActor

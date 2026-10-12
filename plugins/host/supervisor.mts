@@ -454,7 +454,7 @@ export class Supervisor {
         break;
       }
     }
-    this.changed(context.id);
+    this.changed(context.id, method === "pane.close");
     return {};
   }
 
@@ -498,7 +498,13 @@ export class Supervisor {
     };
   }
 
-  changed(contextId: string): void {
+  changed(contextId: string, immediate = false): void {
+    // Once a pane closes, release its layout without another UI batching interval.
+    if (immediate) {
+      this.dirty.delete(contextId);
+      this.emit(this.snapshot(contextId));
+      return;
+    }
     this.dirty.add(contextId);
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {

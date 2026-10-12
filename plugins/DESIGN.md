@@ -38,7 +38,7 @@ settings are separate, and typed linting checks async work and unsafe values.
 | `TerminalView.swift`           | Wrap the unchanged split tree in plugin workspace chrome                                            |
 | `PluginTransport.swift`        | Background process startup, pipe IO, frame decoding, generation-safe reload/shutdown                |
 | `PluginManager.swift`          | Main-queue snapshots, revision filtering, status visibility preferences, native actions             |
-| `PluginWorkspaceView.swift`    | Native status groups/menu and resizable side panes                                                  |
+| `PluginWorkspaceView.swift`    | Plugin-contributed status groups and resizable side panes                                           |
 | `PluginWebView.swift`          | Offline local view loading, ephemeral storage, scoped messaging and state updates                   |
 | `plugins/host`                 | Manifest checks, plugin children, deadlines, hooks, UI state and protocol                           |
 | `plugins/sdk`                  | Agent-friendly TypeScript contract and identity helper                                              |
@@ -94,7 +94,11 @@ plugins own their extension contributions independently.
 - Example Git work is asynchronous, read-only, timeout-limited, and revision-guarded.
 - Git refresh bursts have one running query and one coalesced follow-up per
   context; directory changes cancel obsolete subprocesses. Root discovery is
-  reused until the context changes.
+  revalidated on command completion and manual refresh, or after 30 seconds of
+  polling. Live context changes take priority over background tab refreshes.
+- Pane closure publishes immediately; ordinary status/data writes remain batched.
+- Native plugin controls live in the Ghostty menu and command palette. The footer
+  exists only when a plugin contributes visible status items.
 
 Startup, RSS, CPU, input latency, and output throughput still need native
 measurements. Do not equate process isolation with zero cost. Git polling and

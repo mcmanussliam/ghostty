@@ -367,3 +367,36 @@ test("Git startup supports the full 128-context limit", async (t) => {
   );
   assert.ok(!app.messages.some((message) => message.type === "error"));
 });
+
+test("leaving a repository takes priority over background tab refreshes", async (t) => {
+  const root = await directory(t);
+  const repo = resolve(root, "repo");
+  const outside = resolve(root, "outside");
+  await mkdir(repo);
+  await mkdir(outside);
+  initRepository(repo);
+  const app = await host(t, root, [
+    { path: gitPlugin, settings: { pollIntervalMs: 0 } },
+  ]);
+  app.context("window-a", repo);
+  await app.wait((m) => m.panes?.[0]?.data?.root === repo);
+  const mark = app.messages.length;
+  for (let index = 0; index < 40; index++)
+    app.context(`background-${index}`, repo, 1, `surface-${index}`);
+  app.context("window-a", outside, 2);
+  await app.wait(
+    (m) =>
+      m.contextId === "window-a" &&
+      m.contextRevision === 2 &&
+      m.panes?.length === 0,
+    mark,
+  );
+  const completed = app.messages
+    .slice(mark)
+    .filter((m) => m.panes?.[0]?.data?.root === repo);
+  assert.ok(
+    completed.length < 4,
+    "Directory exit must not wait behind the tab replay queue",
+  );
+  assert.ok(!app.messages.some((m) => m.type === "error"));
+});

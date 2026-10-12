@@ -81,7 +81,9 @@ test("compiled Git pane renders safe filenames, reuses rows, and sends refresh",
   assert.equal(pane.element("count").textContent, "1");
   assert.equal(pane.element("refresh").disabled, false);
   const row = pane.element("files").children[0];
-  assert.equal(row.children[0].textContent, "U");
+  assert.equal(row.children[0].textContent, "??");
+  assert.equal(row.children[0].title, "Untracked");
+  assert.equal(pane.element("root").textContent, "/repo");
   assert.equal(row.children[1].children[0].textContent, "界👻<script>.txt");
   pane.render({ ...data, branch: "next" });
   assert.equal(pane.element("files").children[0], row);
@@ -92,6 +94,33 @@ test("compiled Git pane renders safe filenames, reuses rows, and sends refresh",
   assert.equal(pane.element("files").hidden, true);
   pane.render({ root: "/repo", branch: "main", total: 0, files: [] });
   assert.equal(pane.element("empty").hidden, false);
+});
+
+test("Git rows explain staged, working-tree, and conflicting changes", async () => {
+  const pane = await view();
+  pane.render({
+    root: "/repo",
+    branch: "main...origin/main [ahead 2]",
+    total: 3,
+    files: [
+      { status: " M", path: "unstaged" },
+      { status: "MM", path: "both" },
+      { status: "UU", path: "conflict" },
+    ],
+  });
+  const rows = pane.element("files").children;
+  assert.equal(rows[0].children[0].textContent, " M");
+  assert.equal(rows[0].children[0].title, "Working tree: modified");
+  assert.equal(
+    rows[1].children[0].title,
+    "Staged: modified; Working tree: modified",
+  );
+  assert.equal(rows[2].children[0].title, "Merge conflict");
+  assert.equal(rows[2].children[0].dataset.kind, "conflict");
+  assert.equal(
+    pane.element("branch").textContent,
+    "main...origin/main [ahead 2]",
+  );
 });
 
 test("Git HTML references the compiled local script", async () => {

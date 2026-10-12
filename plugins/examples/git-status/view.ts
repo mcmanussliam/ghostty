@@ -43,9 +43,31 @@ function isGitPaneData(value: GitPaneState): value is GitPaneData {
 }
 
 function statusKind(status: string): string {
+  if (/^(DD|AU|UD|UA|DU|AA|UU)$/.test(status)) return "conflict";
   if (status.includes("D")) return "deleted";
   if (/[A?]/.test(status)) return "added";
   return "modified";
+}
+
+const statusNames: Readonly<Record<string, string>> = {
+  M: "modified",
+  T: "type changed",
+  A: "added",
+  D: "deleted",
+  R: "renamed",
+  C: "copied",
+  U: "unmerged",
+};
+
+function statusDescription(status: string): string {
+  if (status === "??") return "Untracked";
+  if (statusKind(status) === "conflict") return "Merge conflict";
+  const parts: string[] = [];
+  const staged = statusNames[status[0] ?? ""];
+  const unstaged = statusNames[status[1] ?? ""];
+  if (staged) parts.push(`Staged: ${staged}`);
+  if (unstaged) parts.push(`Working tree: ${unstaged}`);
+  return parts.join("; ") || status;
 }
 
 function fileRow(file: GitPaneFile): HTMLLIElement {
@@ -54,8 +76,8 @@ function fileRow(file: GitPaneFile): HTMLLIElement {
   const path = document.createElement("span");
   const name = document.createElement("span");
   status.className = "status";
-  status.textContent = file.status.trim() === "??" ? "U" : file.status.trim();
-  status.title = file.status;
+  status.textContent = file.status;
+  status.title = statusDescription(file.status);
   status.dataset.kind = statusKind(file.status);
   path.className = "path";
   path.title = file.path;
@@ -88,7 +110,7 @@ function render(data: GitPaneState): void {
   if (!ready) return;
   branch.textContent = data.branch;
   branch.title = data.branch;
-  root.textContent = data.root.split("/").pop() || data.root;
+  root.textContent = data.root;
   root.title = data.root;
   const serialized = JSON.stringify(data.files);
   if (serialized === previousFiles) return;

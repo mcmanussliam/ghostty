@@ -8,7 +8,11 @@ struct PluginWorkspaceView<Content: View>: View {
     var backgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     @ViewBuilder var content: () -> Content
     @State private var snapshot = PluginSnapshot()
-    @State private var isRunning = false
+    @State private var hiddenItems: Set<String> = []
+
+    private var visibleStatuses: [PluginStatusItem] {
+        snapshot.statuses.filter { !hiddenItems.contains($0.key) }
+    }
 
     private var colorScheme: ColorScheme {
         NSColor(backgroundColor).isLightColor ? .light : .dark
@@ -24,8 +28,8 @@ struct PluginWorkspaceView<Content: View>: View {
                         .environment(\.colorScheme, colorScheme)
                 }
             }
-            if isRunning {
-                PluginStatusBar(manager: manager, contextId: contextId, snapshot: snapshot)
+            if !visibleStatuses.isEmpty {
+                PluginStatusBar(manager: manager, statuses: visibleStatuses)
                     .environment(\.colorScheme, colorScheme)
                     .background(backgroundColor)
                     .overlay(alignment: .top) {
@@ -37,7 +41,7 @@ struct PluginWorkspaceView<Content: View>: View {
         .onReceive(manager.$snapshots.map { $0[contextId] ?? PluginSnapshot() }.removeDuplicates()) {
             snapshot = $0
         }
-        .onReceive(manager.$isRunning.removeDuplicates()) { isRunning = $0 }
+        .onReceive(manager.$hiddenStatusItems.removeDuplicates()) { hiddenItems = $0 }
     }
 }
 
@@ -76,10 +80,10 @@ private struct PluginPaneView: View {
                     .allowsHitTesting(isReady)
                     .accessibilityHidden(!isReady)
                 if !isReady {
-                    Text("Loading…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    backgroundColor
+                        .overlay {
+                            Text("Loading…").foregroundStyle(.secondary)
+                        }
                 }
             }
         }
@@ -90,54 +94,22 @@ private struct PluginPaneView: View {
 
 private struct PluginStatusBar: View {
     let manager: PluginManager
-    let contextId: String
-    let snapshot: PluginSnapshot
-    @State private var hiddenItems: Set<String> = []
+    let statuses: [PluginStatusItem]
 
     var body: some View {
         PluginStatusLayout {
             group("left")
             group("center")
             group("right")
-            Menu {
-                ForEach(snapshot.commands, id: \.key) { command in
-                    Button(command.title) { manager.run(command, contextId: contextId) }
-                }
-                if !snapshot.statuses.isEmpty {
-                    Divider()
-                    Menu("Status Items") {
-                        ForEach(snapshot.statuses, id: \.key) { item in
-                            Toggle(item.text, isOn: Binding(
-                                get: { !hiddenItems.contains(item.key) },
-                                set: { _ in manager.toggleStatusItem(item.key) }))
-                        }
-                    }
-                }
-                Divider()
-                Button("Reload Plugins") { manager.reload() }
-            } label: {
-                Image(systemName: "puzzlepiece.extension")
-                    .frame(width: 20, height: 20)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Plugin commands and status items")
-            .accessibilityLabel("Plugins")
         }
-        .font(.system(size: 11))
         .foregroundStyle(.secondary)
-        .controlSize(.mini)
         .padding(.horizontal, 10)
         .frame(height: 26)
-        .onReceive(manager.$hiddenStatusItems.removeDuplicates()) { hiddenItems = $0 }
     }
 
     private func group(_ alignment: String) -> some View {
         HStack(spacing: 10) {
-            ForEach(snapshot.statuses.filter {
-                $0.alignment == alignment && !hiddenItems.contains($0.key)
-            }, id: \.key) { item in
+            ForEach(statuses.filter { $0.alignment == alignment }, id: \.key) { item in
                 if item.command != nil {
                     Button(item.text) { manager.press(item) }
                         .buttonStyle(.plain)
@@ -154,20 +126,19 @@ private struct PluginStatusBar: View {
 /// Centre items stay centred; empty groups leave room for a long branch name.
 private struct PluginStatusLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        CGSize(width: proposal.width ?? subviews.reduce(36) { $0 + $1.sizeThatFits(.unspecified).width }, height: 26)
+        CGSize(width: proposal.width ?? subviews.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width }, height: 26)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard subviews.count == 4 else { return }
-        let menu = subviews[3].sizeThatFits(.unspecified).width
-        let available = max(0, bounds.width - menu - 12)
+        guard subviews.count == 3 else { return }
+        let available = bounds.width
         let center = min(subviews[1].sizeThatFits(.unspecified).width, available / 3)
         let rightLimit = center > 0 ? max(0, available - (bounds.width + center) / 2 - 12) : available / 3
         let right = min(subviews[2].sizeThatFits(.unspecified).width, rightLimit)
         let leftLimit = center > 0 ? max(0, (bounds.width - center) / 2 - 12) : max(0, available - right - 12)
         let left = min(subviews[0].sizeThatFits(.unspecified).width, leftLimit)
-        let widths = [left, center, right, menu]
-        let positions = [bounds.minX, bounds.midX - center / 2, bounds.minX + available - right, bounds.maxX - menu]
+        let widths = [left, center, right]
+        let positions = [bounds.minX, bounds.midX - center / 2, bounds.maxX - right]
         for index in subviews.indices {
             subviews[index].place(at: CGPoint(x: positions[index], y: bounds.midY), anchor: .leading,
                                  proposal: ProposedViewSize(width: widths[index], height: bounds.height))

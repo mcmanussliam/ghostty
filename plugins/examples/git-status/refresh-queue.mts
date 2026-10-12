@@ -4,6 +4,7 @@ interface RefreshRequest {
   context: Context;
   reveal: boolean;
   rediscover: boolean;
+  priority: boolean;
 }
 export interface RefreshJob extends RefreshRequest {
   controller: AbortController;
@@ -26,7 +27,11 @@ export class RefreshQueue {
 
   schedule(
     context: Context,
-    options: { reveal?: boolean; rediscover?: boolean } = {},
+    options: {
+      reveal?: boolean;
+      rediscover?: boolean;
+      priority?: boolean;
+    } = {},
   ): void {
     if (this.stopped) return;
     const previous = this.pending.get(context.id);
@@ -39,6 +44,10 @@ export class RefreshQueue {
         options.reveal === true ||
         options.rediscover === true ||
         (sameRevision && previous?.rediscover === true),
+      priority:
+        options.priority === true ||
+        options.reveal === true ||
+        (sameRevision && previous?.priority === true),
     });
     const running = this.active.get(context.id);
     if (running && running.context.revision !== context.revision)
@@ -63,8 +72,8 @@ export class RefreshQueue {
     let request: RefreshRequest | undefined;
     for (const pending of this.pending.values()) {
       if (!this.active.has(pending.context.id)) {
-        request = pending;
-        break;
+        if (!request || pending.priority) request = pending;
+        if (pending.priority) break;
       }
     }
     if (!request) return;

@@ -65,7 +65,9 @@ experimental. Linux/GTK integration is not implemented yet.
 
 5. Reload Ghostty's configuration, or restart the built app. Enter a local Git
    repository. The bottom bar shows the branch and change count; a Git Changes
-   pane opens beside the terminal. Click the status item to reopen it.
+   pane opens beside the terminal. Click the status item to reopen it. Plugin
+   commands and status visibility controls live in **Ghostty → Plugins**. The
+   footer appears only while plugins contribute visible status items.
 
 The example refreshes on directory changes, command completion, its Refresh
 button, and every four seconds. Set `pollIntervalMs` to `0` to disable polling;
@@ -198,7 +200,7 @@ shell hooks, and arbitrary native UI replacements are future extension points.
 subsequent batched snapshot asynchronously.
 
 Register commands with `api.commands.register({ id, title, run })`. Commands
-appear in the status bar's Plugins menu and can be attached to a status item's
+appear in **Ghostty → Plugins** and the command palette and can be attached to a status item's
 `command`. A registered command can also run through `api.commands.run`.
 
 ## Custom panes
@@ -260,7 +262,7 @@ current terminal's UI. Closed context IDs are rejected.
 
 ## Reload, limits, and performance
 
-Edit a plugin, then select **Plugins → Reload Plugins**, or reload Ghostty's
+Edit a plugin, then select **Ghostty → Reload Plugins** (also in the command palette), or reload Ghostty's
 configuration. Reload starts fresh child processes, imports updated files,
 clears old UI, and replays current contexts. Roll back a plugin by restoring its
 previous files/version and reloading. Automatic filesystem hot reload, a plugin
