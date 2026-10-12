@@ -32,11 +32,17 @@ test("Git porcelain parser handles renames, Unicode, whitespace, and bounded dis
   );
   assert.equal(status.branch, "main");
   assert.equal(status.total, 3);
-  assert.deepEqual(status.files[0], { status: "R ", path: "new name👻" });
+  assert.deepEqual(status.files[0], {
+    status: "R ",
+    path: "new name👻",
+    originalPath: "old name",
+    groups: ["staged"],
+  });
   assert.equal(status.files[1].path, "line\nbreak");
-  const many = parseStatus("## main\0" + "?? file\0".repeat(100));
-  assert.equal(many.total, 100);
-  assert.equal(many.files.length, 50);
+  const many = parseStatus("## main\0" + "?? file\0".repeat(1000));
+  assert.equal(many.total, 1000);
+  assert.ok(many.files.length > 50 && many.files.length <= 200);
+  assert.equal(many.counts.untracked, 1000);
   const unicode = parseStatus(
     "## " +
       "日本語👻".repeat(100) +
@@ -45,7 +51,7 @@ test("Git porcelain parser handles renames, Unicode, whitespace, and bounded dis
   );
   assert.equal(unicode.total, 100);
   assert.ok(Buffer.byteLength(unicode.branch) <= 256);
-  assert.ok(unicode.files.every((file) => Buffer.byteLength(file.path) <= 200));
+  assert.ok(unicode.files.every((file) => file.path === "界👻".repeat(100)));
   assert.ok(!JSON.stringify(unicode).includes("�"));
   const escaped = parseStatus(
     "## " +
@@ -58,7 +64,97 @@ test("Git porcelain parser handles renames, Unicode, whitespace, and bounded dis
   assert.equal(escaped.total, 100);
 });
 
-test("Git example auto-opens a real repo, honors manual close, follows cwd, and reopens on click", async (t) => {
+test("Git status separates change groups and parses upstream, unborn, and detached branches", () => {
+  const status = parseStatus(
+    "## topic...origin/topic [ahead 3, behind 2]\0MM both\0R  new\0old\0 D deleted\0UU conflict\0?? fresh\0",
+  );
+  assert.equal(status.branch, "topic");
+  assert.equal(status.upstream, "origin/topic");
+  assert.equal(status.ahead, 3);
+  assert.equal(status.behind, 2);
+  assert.deepEqual(status.counts, {
+    staged: 2,
+    unstaged: 2,
+    conflicts: 1,
+    untracked: 1,
+  });
+  assert.equal(status.total, 5);
+  assert.deepEqual(status.files[0].groups, ["staged", "unstaged"]);
+  assert.equal(
+    parseStatus("## main...origin/main [gone]\0").upstreamGone,
+    true,
+  );
+  assert.equal(parseStatus("## No commits yet on main\0").branch, "main");
+  assert.equal(parseStatus("## No commits yet on main\0").unborn, true);
+  assert.equal(parseStatus("## HEAD (no branch)\0").detached, true);
+  const escaped = parseStatus(
+    "## " +
+      "\u0001".repeat(256) +
+      "..." +
+      "\u0001".repeat(256) +
+      "\0" +
+      (
+        "R  " +
+        "\u0001".repeat(300) +
+        "\0" +
+        "\u0001".repeat(300) +
+        "\0"
+      ).repeat(100),
+  );
+  assert.ok(
+    Buffer.byteLength(
+      JSON.stringify({ root: "\u0001".repeat(1024), ...escaped }),
+    ) <=
+      16 * 1024,
+  );
+});
+
+test("Git pane reports real staged and working-tree edits, renames, and nested untracked files without a footer", async (t) => {
+  const root = await directory(t);
+  const repo = resolve(root, "repository");
+  initRepository(repo);
+  const git = (...args) =>
+    execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  await writeFile(resolve(repo, "both.txt"), "initial\n");
+  await writeFile(resolve(repo, "old.txt"), "rename\n");
+  git("add", ".");
+  git(
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "-m",
+    "Initial",
+  );
+  await writeFile(resolve(repo, "both.txt"), "staged\n");
+  git("add", "both.txt");
+  await writeFile(resolve(repo, "both.txt"), "working tree\n");
+  git("mv", "old.txt", "new.txt");
+  await mkdir(resolve(repo, "nested"));
+  await writeFile(resolve(repo, "nested/untracked.txt"), "new\n");
+  const app = await host(t, root, [
+    { path: gitPlugin, settings: { pollIntervalMs: 0 } },
+  ]);
+  app.context("window-a", repo);
+  const message = await app.wait((m) => m.panes?.[0]?.data?.total === 3);
+  assert.deepEqual(message.statuses, []);
+  const data = message.panes[0].data;
+  assert.deepEqual(data.counts, {
+    conflicts: 0,
+    staged: 2,
+    unstaged: 1,
+    untracked: 1,
+  });
+  assert.equal(
+    data.files.find((file) => file.path === "new.txt").originalPath,
+    "old.txt",
+  );
+  assert.ok(data.files.some((file) => file.path === "nested/untracked.txt"));
+  assert.ok(!app.messages.some((m) => m.type === "error"));
+});
+
+test("Git example auto-opens a real repo, honors manual close, follows cwd, and reopens from the menu", async (t) => {
   const root = await directory(t);
   const repo = resolve(root, "repository");
   const outside = resolve(root, "outside");
@@ -76,7 +172,8 @@ test("Git example auto-opens a real repo, honors manual close, follows cwd, and 
   ]);
   app.context("window-a", repo);
   const status = await app.wait((m) => m.panes?.[0]?.data?.total === 1);
-  assert.match(status.statuses[0].text, /1 change/);
+  assert.deepEqual(status.statuses, []);
+  assert.equal(status.panes[0].width, 420);
   const mark = app.messages.length;
   app.send({
     type: "ui.pane.close",
@@ -85,7 +182,7 @@ test("Git example auto-opens a real repo, honors manual close, follows cwd, and 
     contextId: "window-a",
   });
   await app.wait(
-    (m) => m.panes?.length === 0 && m.statuses?.length === 1,
+    (m) => m.panes?.length === 0 && m.statuses?.length === 0,
     mark,
   );
   await writeFile(resolve(repo, "second.txt"), "second");
@@ -95,15 +192,10 @@ test("Git example auto-opens a real repo, honors manual close, follows cwd, and 
     exitCode: 0,
     durationMs: 10,
   });
-  await app.wait(
-    (m) =>
-      m.panes?.length === 0 && /2 changes/.test(m.statuses?.[0]?.text ?? ""),
-    mark,
-  );
   app.send({
-    type: "ui.status.press",
+    type: "command.run",
     pluginId: "git-status",
-    id: "branch",
+    id: "show-changes",
     contextId: "window-a",
   });
   await app.wait((m) => m.panes?.[0]?.data?.total === 2, mark);
@@ -135,6 +227,62 @@ test("Git example auto-opens a real repo, honors manual close, follows cwd, and 
       m.panes?.length === 0,
     secondMark,
   );
+});
+
+test("Git status failures stay in the pane and Refresh retries without a footer", async (t) => {
+  const root = await directory(t);
+  const bin = resolve(root, "bin");
+  const failure = resolve(root, "fail-status");
+  await mkdir(bin);
+  await writeFile(failure, "");
+  await writeFile(
+    resolve(bin, "git"),
+    `#!${nodeExecutable}
+import {existsSync} from 'node:fs';
+if (process.argv.includes('rev-parse')) {
+  process.stdout.write(process.env.GHOSTTY_TEST_GIT_ROOT+'\\n');
+} else if (existsSync(process.env.GHOSTTY_TEST_GIT_FAILURE)) {
+  process.stderr.write('Status permission denied');
+  process.exitCode = 1;
+} else process.stdout.write('## main\\0');
+`,
+    { mode: 0o755 },
+  );
+  const app = await host(
+    t,
+    root,
+    [{ path: gitPlugin, settings: { pollIntervalMs: 0 } }],
+    {
+      PATH: `${bin}:${process.env.PATH}`,
+      GHOSTTY_TEST_GIT_ROOT: root,
+      GHOSTTY_TEST_GIT_FAILURE: failure,
+    },
+  );
+  app.context("window-a", root);
+  const failed = await app.wait((m) => m.panes?.[0]?.data?.error);
+  assert.match(failed.panes[0].data.error, /Status permission denied/);
+  assert.deepEqual(failed.statuses, []);
+  await rm(failure);
+  const mark = app.messages.length;
+  app.send({
+    type: "ui.pane.message",
+    pluginId: "git-status",
+    id: "changes",
+    contextId: "window-a",
+    payload: { action: "refresh" },
+  });
+  await app.wait(
+    (m) =>
+      m.panes?.[0]?.data?.branch === "main" &&
+      m.panes[0].data.error === undefined,
+    mark,
+  );
+  assert.ok(
+    app.messages
+      .filter((m) => m.type === "snapshot")
+      .every((m) => m.statuses.length === 0),
+  );
+  assert.ok(!app.messages.some((m) => m.type === "error"));
 });
 
 test("Git command bursts coalesce and revalidate the repository root", async (t) => {
@@ -241,14 +389,14 @@ test("Git dismissal survives visiting another repository and explicit reopening"
   await app.wait(
     (m) =>
       m.contextRevision === 3 &&
-      m.statuses?.length === 1 &&
+      m.statuses?.length === 0 &&
       m.panes?.length === 0,
     mark,
   );
   app.send({
-    type: "ui.status.press",
+    type: "command.run",
     pluginId: "git-status",
-    id: "branch",
+    id: "show-changes",
     contextId: "window-a",
   });
   await app.wait(
@@ -304,12 +452,14 @@ test("Git refresh keeps a manually opened pane updated with autoOpen disabled", 
     { path: gitPlugin, settings: { autoOpen: false, pollIntervalMs: 0 } },
   ]);
   app.context("window-a", repo);
-  const initial = await app.wait((m) => m.statuses?.length === 1);
+  const initial = await app.wait((m) =>
+    m.commands?.some((command) => command.id === "show-changes"),
+  );
   assert.equal(initial.panes.length, 0);
   app.send({
-    type: "ui.status.press",
+    type: "command.run",
     pluginId: "git-status",
-    id: "branch",
+    id: "show-changes",
     contextId: "window-a",
   });
   await app.wait((m) => m.panes?.[0]?.data?.root === repo);

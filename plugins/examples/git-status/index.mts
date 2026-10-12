@@ -6,6 +6,7 @@ import type { Context, Plugin } from "../../sdk/dist/index.mjs";
 import { parseStatus, truncate } from "./status.mjs";
 import { RefreshQueue } from "./refresh-queue.mjs";
 import type { RefreshJob } from "./refresh-queue.mjs";
+import type { GitData } from "./types.mjs";
 export { parseStatus } from "./status.mjs";
 
 interface Repository {
@@ -53,7 +54,7 @@ export default {
       id: "changes",
       title: "Git Changes",
       entry: "view.html",
-      width: 320,
+      width: 420,
       retainOnContextChange: true,
     });
 
@@ -62,6 +63,31 @@ export default {
         !disposed &&
         contexts.get(context.id)?.context.revision === context.revision
       );
+    }
+
+    async function updatePane(
+      context: Context,
+      root: string,
+      data: GitData,
+      reveal: boolean,
+    ): Promise<void> {
+      if (!current(context)) return;
+      if (reveal) dismissed.get(context.id)?.delete(root);
+      if (dismissed.get(context.id)?.has(root)) {
+        await api.ui.panes.close("changes", context.id, {
+          revision: context.revision,
+        });
+      } else if (reveal || options.autoOpen !== false) {
+        await api.ui.panes.open("changes", context.id, {
+          reveal,
+          revision: context.revision,
+          data,
+        });
+      } else {
+        await api.ui.panes.publish("changes", context.id, data, {
+          revision: context.revision,
+        });
+      }
     }
 
     async function refresh({
@@ -92,9 +118,6 @@ export default {
       } catch {
         if (!controller.signal.aborted && current(context)) {
           cached.root = null;
-          await api.ui.statusBar.remove("branch", context.id, {
-            revision: context.revision,
-          });
           await api.ui.panes.close("changes", context.id, {
             revision: context.revision,
           });
@@ -105,59 +128,36 @@ export default {
         const status = parseStatus(
           await git(
             root,
-            ["status", "--porcelain=v1", "-z", "--branch"],
+            [
+              "status",
+              "--porcelain=v1",
+              "-z",
+              "--branch",
+              "--untracked-files=all",
+            ],
             controller.signal,
           ),
         );
         if (!current(context)) return;
         cached.root = root;
-        const result = await api.ui.statusBar.set({
-          id: "branch",
-          contextId: context.id,
-          revision: context.revision,
-          command: "show-changes",
-          alignment: "left",
-          text: truncate(
-            `${status.branch} · ${status.total} change${status.total === 1 ? "" : "s"}`,
-            512,
-          ),
-          tooltip: truncate(`Git status for ${root}`, 1024),
-        });
-        if (result.stale || !current(context)) return;
-        if (reveal) dismissed.get(context.id)?.delete(root);
         const data = { root: truncate(root, 1024), ...status };
-        if (dismissed.get(context.id)?.has(root)) {
-          await api.ui.panes.close("changes", context.id, {
-            revision: context.revision,
-          });
-        } else if (reveal || options.autoOpen !== false) {
-          await api.ui.panes.open("changes", context.id, {
-            reveal,
-            revision: context.revision,
-            data,
-          });
-        } else {
-          await api.ui.panes.publish("changes", context.id, data, {
-            revision: context.revision,
-          });
-        }
+        await updatePane(context, root, data, reveal);
       } catch (error) {
         if (!controller.signal.aborted && current(context)) {
-          cached.root = null;
-          await api.ui.panes.close("changes", context.id, {
-            revision: context.revision,
-          });
-          await api.ui.statusBar.set({
-            id: "branch",
-            contextId: context.id,
-            revision: context.revision,
-            text: "Git status unavailable",
-            tooltip: truncate(
-              error instanceof Error ? error.message : String(error),
-              1024,
-            ),
-            command: "show-changes",
-          });
+          cached.root = root;
+          await updatePane(
+            context,
+            root,
+            {
+              root: truncate(root, 1024),
+              ...parseStatus(""),
+              error: truncate(
+                error instanceof Error ? error.message : String(error),
+                1024,
+              ),
+            },
+            reveal,
+          );
         }
       }
     }

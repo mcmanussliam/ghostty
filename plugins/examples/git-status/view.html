@@ -3,69 +3,325 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'"
+    />
     <title>Git Changes</title>
     <style>
       :root {
         color-scheme: light dark;
-        font: 13px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+        font:
+          13px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
         --text: #24262a;
-        --muted: #6b6e75;
-        --line: #00000012;
-        --hover: #00000006;
+        --muted: #686c74;
+        --line: #00000014;
+        --hover: #00000008;
+        --selected: #0000000e;
+        --conflict: #a3342b;
         color: var(--text);
         background: var(--ghostty-background, #f6f6f6);
       }
       @media (prefers-color-scheme: dark) {
         :root {
           --text: #e4e6eb;
-          --muted: #989da8;
-          --line: #ffffff12;
+          --muted: #a1a6b0;
+          --line: #ffffff14;
           --hover: #ffffff08;
+          --selected: #ffffff10;
+          --conflict: #f19389;
           background: var(--ghostty-background, #202124);
         }
       }
-      * { box-sizing: border-box; }
-      body { margin: 0; }
-      header { display: flex; align-items: start; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-      #repository { flex: 1; min-width: 0; }
-      h1 { margin: 0; font: inherit; font-weight: 500; }
-      #root { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
-      #root, h1 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-      button {
-        margin-left: auto; padding: 2px 5px; border: 0; border-radius: 3px;
-        font: inherit; color: var(--muted); background: transparent; cursor: pointer;
+      * {
+        box-sizing: border-box;
       }
-      button:hover { color: var(--text); background: var(--hover); }
-      button:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
-      .section { display: flex; gap: 6px; padding: 8px 12px 4px; color: var(--muted); }
-      h2 { margin: 0; font: inherit; }
-      #count { font-variant-numeric: tabular-nums; }
-      ul { margin: 0; padding: 0 12px; list-style: none; }
-      li { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; }
-      .status { flex: none; width: 2ch; font: 12px/1.5 ui-monospace, monospace; white-space: pre; color: var(--muted); }
-      .status[data-kind="conflict"] { color: #c45a50; }
-      .path { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
-      .name { overflow-wrap: anywhere; white-space: pre-wrap; }
-      .directory { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; font-size: 12px; color: var(--muted); }
-      #empty, #summary { margin: 10px 12px; color: var(--muted); }
-      #summary:empty { display: none; }
-      [hidden] { display: none !important; }
+      body {
+        margin: 0;
+      }
+      header {
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #repository {
+        min-width: 0;
+        flex: 1;
+      }
+      h1 {
+        margin: 0;
+        font: inherit;
+        font-weight: 600;
+      }
+      #root,
+      #tracking {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      #root,
+      h1 {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .branch-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+        align-items: baseline;
+      }
+      .label {
+        font-size: 12px;
+        color: var(--muted);
+        flex: none;
+      }
+      #branch {
+        overflow-wrap: anywhere;
+      }
+      button {
+        padding: 3px 7px;
+        border: 0;
+        border-radius: 4px;
+        font: inherit;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+      }
+      button:hover {
+        color: var(--text);
+        background: var(--hover);
+      }
+      button[aria-pressed="true"] {
+        color: var(--text);
+        background: var(--selected);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button:focus-visible,
+      summary:focus-visible,
+      input:focus-visible {
+        outline: 2px solid Highlight;
+        outline-offset: 2px;
+      }
+      .toolbar {
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      .view-options {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      #count {
+        flex: 1;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      #filter {
+        width: 100%;
+        padding: 5px 8px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: var(--text);
+        background: transparent;
+        font: inherit;
+      }
+      #filter::placeholder {
+        color: var(--muted);
+      }
+      #files {
+        padding: 6px 8px;
+      }
+      ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      summary {
+        cursor: pointer;
+        user-select: none;
+      }
+      .change-group > summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 6px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .change-group > summary::before,
+      .folder > summary::before,
+      .file > summary::before {
+        content: "›";
+        display: inline-block;
+        flex: none;
+        width: 10px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1;
+      }
+      .change-group[open] > summary::before,
+      .folder[open] > summary::before,
+      .file[open] > summary::before {
+        transform: rotate(90deg);
+      }
+      .group-count {
+        margin-left: auto;
+        font-weight: 400;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .folder > summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 6px;
+      }
+      .folder > ul {
+        margin-left: 15px;
+        padding-left: 3px;
+        border-left: 1px solid var(--line);
+      }
+      .file > summary {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        padding: 4px 6px;
+        border-radius: 3px;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary::marker {
+        content: "";
+      }
+      .file > summary:hover,
+      .folder > summary:hover {
+        background: var(--hover);
+      }
+      .file[open] > summary {
+        background: var(--selected);
+      }
+      .path {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        align-items: baseline;
+        gap: 7px;
+      }
+      .name {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      .directory {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: pre;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .folder-name {
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      .status {
+        flex: none;
+        width: 2ch;
+        text-align: center;
+        font:
+          12px/1.5 ui-monospace,
+          monospace;
+        color: var(--muted);
+      }
+      .status[data-kind="conflicts"] {
+        color: var(--conflict);
+      }
+      .file-detail {
+        padding: 5px 8px 9px 22px;
+        display: grid;
+        gap: 3px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .detail-status {
+        color: var(--text);
+      }
+      .detail-path {
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      #empty,
+      #summary,
+      #error {
+        margin: 12px 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      #error {
+        color: var(--conflict);
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      #summary:empty {
+        display: none;
+      }
+      [hidden] {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
     <header>
-      <div id="repository" hidden>
-        <h1 id="branch"></h1>
-        <p id="root"></p>
+      <div class="heading">
+        <div id="repository" hidden>
+          <h1 id="repository-name"></h1>
+          <p id="root"></p>
+        </div>
+        <button
+          id="refresh"
+          title="Refresh Git status"
+          aria-label="Refresh Git status"
+          disabled
+        >
+          Refresh
+        </button>
       </div>
-      <button id="refresh" title="Refresh Git status" aria-label="Refresh Git status" disabled>Refresh</button>
+      <div class="branch-row">
+        <span class="label">Branch</span><span id="branch"></span>
+      </div>
+      <p id="tracking"></p>
     </header>
-    <div class="section">
-      <h2>Changes</h2><span id="count"></span>
+    <div class="toolbar">
+      <div class="view-options">
+        <span id="count" aria-live="polite" aria-atomic="true"></span>
+        <div role="group" aria-label="Changed file layout">
+          <button id="tree" aria-pressed="true">Tree</button>
+          <button id="list" aria-pressed="false">List</button>
+        </div>
+      </div>
+      <input
+        id="filter"
+        type="search"
+        placeholder="Filter changed files…"
+        aria-label="Filter changed files"
+        disabled
+      />
     </div>
-    <ul id="files" aria-label="Changed files"></ul>
+    <main id="files" aria-label="Changed files"></main>
     <p id="empty" hidden>Working tree clean</p>
+    <p id="error" role="alert" hidden></p>
     <p id="summary" role="status"></p>
     <script src="dist/view.js"></script>
   </body>

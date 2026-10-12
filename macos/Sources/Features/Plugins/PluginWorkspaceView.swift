@@ -51,6 +51,7 @@ private struct PluginPaneView: View {
     let context: PluginContext?
     let backgroundColor: Color
     @State private var readyRevision: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isReady: Bool { readyRevision != nil && readyRevision == context?.revision && pane.loading != true }
 
@@ -76,18 +77,29 @@ private struct PluginPaneView: View {
             ZStack {
                 PluginWebView(manager: manager, pane: pane, context: context,
                               backgroundColor: backgroundColor, readyRevision: $readyRevision)
+                    .offset(x: isReady || reduceMotion ? 0 : 6)
+                    .animation(entranceAnimation, value: isReady)
                     .allowsHitTesting(isReady)
                     .accessibilityHidden(!isReady)
-                if !isReady {
-                    Color(nsColor: NSColor(backgroundColor).withAlphaComponent(1))
-                        .overlay {
-                            Text("Loading…").foregroundStyle(.secondary)
-                        }
-                }
+                // Keep WebKit rendering beneath the cover. Hide obsolete state immediately;
+                // ease the cover away only after the current page has painted.
+                Color(nsColor: NSColor(backgroundColor).withAlphaComponent(1))
+                    .overlay {
+                        Text("Loading…").foregroundStyle(.secondary)
+                    }
+                    .opacity(isReady ? 0 : 1)
+                    .animation(entranceAnimation, value: isReady)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(isReady)
             }
         }
         .frame(minWidth: 160, idealWidth: pane.width, maxWidth: 1200, maxHeight: .infinity)
         .background(backgroundColor)
+        .clipped()
+    }
+
+    private var entranceAnimation: Animation? {
+        isReady && !reduceMotion ? .easeOut(duration: 0.16) : nil
     }
 }
 

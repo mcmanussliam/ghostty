@@ -53,9 +53,6 @@ struct NativePluginCheck {
 
     @MainActor
     static func checkPaneAppearance() throws {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.finishLaunching()
-        NSApp.activate(ignoringOtherApps: true)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -162,6 +159,9 @@ struct NativePluginCheck {
     @MainActor
     static func checkGitView(path: String) {
         _ = NSApplication.shared
+        NSApp.setActivationPolicy(.regular)
+        NSApp.finishLaunching()
+        NSApp.activate(ignoringOtherApps: true)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController.addUserScript(WKUserScript(source: """
@@ -170,15 +170,17 @@ struct NativePluginCheck {
                 onState: handler => window.addEventListener('ghostty:state', event => handler(event.detail))
             };
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 420, height: 680), configuration: configuration)
+        let window = NSWindow(contentRect: webView.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
         let check = GitViewCheck()
         webView.navigationDelegate = check
         let url = URL(fileURLWithPath: path)
         webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        let deadline = Date(timeIntervalSinceNow: 20)
-        while !check.done && Date() < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-        }
+        waitUntil { check.done }
         webView.stopLoading()
         precondition(check.done, "Git view loading timed out")
         precondition(check.failure == nil, check.failure ?? "Git view failed")
@@ -254,18 +256,50 @@ private final class GitViewCheck: NSObject, WKNavigationDelegate {
         webView.evaluateJavaScript("""
             window.dispatchEvent(new CustomEvent('ghostty:state', {detail: {
                 context: {id: 'test', surfaceId: 'surface', cwd: '/repo', revision: 1},
-                data: {root: '/repo', branch: 'main', total: 1, files: [{status: '??', path: '日本語<file>.txt'}]}
+                data: {root: '/repo', branch: 'main', upstream: 'origin/main', ahead: 2, behind: 1,
+                  detached: false, unborn: false, upstreamGone: false, total: 2,
+                  counts: {conflicts: 0, staged: 1, unstaged: 1, untracked: 1},
+                  files: [{status: 'MM', path: 'src/main.ts', groups: ['staged', 'unstaged']},
+                          {status: '??', path: '日本語<file>.txt', groups: ['untracked']}] }
             }}));
+            const folder = document.querySelector('.folder');
+            folder.open = false;
+            folder.dispatchEvent(new Event('toggle'));
+            const heading = folder.querySelector('summary');
+            heading.focus();
+            const focusedId = heading.parentElement.id;
+            window.dispatchEvent(new CustomEvent('ghostty:state', {detail: {
+                context: {id: 'test', surfaceId: 'surface', cwd: '/repo', revision: 1},
+                data: {root: '/repo', branch: 'main', upstream: 'origin/main', ahead: 2, behind: 1,
+                  detached: false, unborn: false, upstreamGone: false, total: 3,
+                  counts: {conflicts: 0, staged: 1, unstaged: 1, untracked: 2},
+                  files: [{status: 'MM', path: 'src/main.ts', groups: ['staged', 'unstaged']},
+                          {status: '??', path: '日本語<file>.txt', groups: ['untracked']},
+                          {status: '??', path: 'new.txt', groups: ['untracked']}] }
+            }}));
+            const preserved = document.querySelector('.folder').open === false &&
+                document.activeElement.parentElement.id === focusedId;
+            document.getElementById('list').click();
+            const flat = !document.querySelector('.folder');
+            document.getElementById('tree').click();
+            const filter = document.getElementById('filter');
+            filter.value = '日本語';
+            filter.dispatchEvent(new Event('input'));
             document.getElementById('refresh').click();
             ({branch: document.getElementById('branch').textContent,
-              file: document.querySelector('#files .name').textContent,
+              file: [...document.querySelectorAll('#files .name')].find(node => node.textContent === '日本語<file>.txt').textContent,
+              groups: String(document.querySelectorAll('.change-group').length),
+              preserved: String(preserved), flat: String(flat),
+              tracking: document.getElementById('tracking').textContent,
               action: window.testSent.action});
             """) { value, error in
             if let error {
                 self.failure = error.localizedDescription
             } else if let result = value as? [String: String],
                       result["branch"] == "main", result["file"] == "日本語<file>.txt",
-                      result["action"] == "refresh" {
+                      result["action"] == "refresh", result["groups"] == "1",
+                      result["preserved"] == "true", result["flat"] == "true",
+                      result["tracking"] == "origin/main · 2 ahead · 1 behind" {
                 self.failure = nil
             } else {
                 self.failure = "Git view did not render compiled state or send refresh"

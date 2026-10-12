@@ -64,15 +64,28 @@ experimental. Linux/GTK integration is not implemented yet.
    ```
 
 5. Reload Ghostty's configuration, or restart the built app. Enter a local Git
-   repository. The bottom bar shows the branch and change count; a Git Changes
-   pane opens beside the terminal. Click the status item to reopen it. Plugin
-   commands and status visibility controls live in **Ghostty → Plugins**. The
-   footer appears only while plugins contribute visible status items.
+   repository. A resizable Git Changes pane opens beside the terminal, with a
+   420-point default width. Reopen it with **Ghostty → Plugins → Open Git Changes**.
+   The Git example does not contribute a bottom status item.
+
+The pane shows the repository, branch, upstream, ahead/behind counts, and separate
+merge-conflict, staged, working-tree, and untracked groups. A file with both staged
+and working-tree edits appears in both groups; the overall count counts it once.
+Switch between a compact folder tree and a flat file list, filter by current or
+original path, and expand a file to inspect its status and rename/copy source.
+Folder and file disclosures survive status refreshes. The display includes up to
+200 files within the pane's payload budget, retaining exact filenames; group and
+overall counts include omitted files, and the pane labels a partial list.
+Status failures appear in the pane with Refresh available to retry.
+
+Pane content enters with a 160 ms fade and a small inward movement after WebKit
+has painted the current state. Directory changes and pane closure do not wait for
+the animation. Reduce Motion disables it, and ordinary refreshes do not replay it.
 
 The example refreshes on directory changes, command completion, its Refresh
 button, and every four seconds. Set `pollIntervalMs` to `0` to disable polling;
 positive intervals have a four-second minimum. Set `autoOpen` to `false` for a
-status-only default. Closing the pane remembers your choice for that repo in
+manual-opening default. Closing the pane remembers your choice for that repo in
 that window/tab until plugin reload, even when navigating away and back.
 Changing the focused split makes the window's plugin context follow that split.
 Refresh bursts coalesce into one running query and one follow-up per context.
@@ -327,7 +340,7 @@ macos/build.nu --configuration ReleaseLocal --action build
 
 Verify splits/tabs, pane resizing and focus, fullscreen, quick terminal, reload,
 and quitting. Compare ReleaseLocal startup, idle RSS/CPU, typing latency, and
-high-volume output with plugins disabled, with the Git status widget, and with an
-open pane. No native performance result is claimed before those measurements.
+high-volume output with plugins disabled and with the Git pane open. No native
+performance result is claimed before those measurements.
 
 This implementation and documentation were written with OpenAI Codex assistance.

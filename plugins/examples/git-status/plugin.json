@@ -7,7 +7,6 @@
     "context",
     "commands",
     "shell.command.finished",
-    "ui.statusBar",
     "ui.panes"
   ],
   "main": "dist/index.mjs"
