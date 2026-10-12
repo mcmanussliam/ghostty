@@ -53,6 +53,8 @@ struct NativePluginCheck {
 
     @MainActor
     static func checkPaneAppearance() throws {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -83,7 +85,7 @@ struct NativePluginCheck {
         let window = NSWindow(contentRect: webView.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = webView
-        window.orderFront(nil)
+        window.makeKeyAndOrderFront(nil)
         defer { window.close() }
         webView.navigationDelegate = coordinator
         coordinator.webView = webView
@@ -92,6 +94,20 @@ struct NativePluginCheck {
                                   scheme: .dark)
         coordinator.load()
         waitUntil { ready == 1 }
+        if ready != 1 {
+            var inspected = false
+            webView.evaluateJavaScript("""
+                JSON.stringify({ready: document.readyState, hidden: document.hidden,
+                    background: window.startBackground, scheme: window.startScheme,
+                    bridge: typeof window.ghostty, revision: document.documentElement.dataset.revision,
+                    painted: window.paintedRevision});
+                """) { value, error in
+                print("Pane diagnostics: \(value ?? "nil"), error: \(String(describing: error))")
+                inspected = true
+            }
+            waitUntil { inspected }
+            fflush(stdout)
+        }
         precondition(ready == 1, "Pane did not acknowledge its first rendered frame")
 
         // An obsolete frame must not reveal newer state, including an entry reload at the same revision.
